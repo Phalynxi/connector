@@ -1,8 +1,12 @@
 const WebSocket = require("ws");
+const http = require("http");
 
-const server = new WebSocket.Server({ port: 3000 });
+const PORT = process.env.PORT || 3000;
 
-server.on("connection", (client) => {
+const server = http.createServer();
+const wss = new WebSocket.Server({ server });
+
+wss.on("connection", (client) => {
     const gameSocket = new WebSocket("wss://moomoo.io");
 
     client.on("message", (msg) => {
@@ -14,4 +18,8 @@ server.on("connection", (client) => {
         if (client.readyState === WebSocket.OPEN)
             client.send(msg);
     });
+});
+
+server.listen(PORT, () => {
+    console.log("Server running on port " + PORT);
 });
