@@ -69,8 +69,14 @@ const server = http.createServer((req, res) => {
   });
   res.end("ok");
 });
+server.on("connection", (socket) => {
+  socket.setNoDelay(true);
+  socket.setKeepAlive(true, 1000);
+});
 
 server.on("upgrade", (req, socket, head) => {
+  socket.setNoDelay(true);
+  socket.setKeepAlive(true, 1000);
   let requestUrl;
   try {
     requestUrl = new URL(req.url || "/", "http://localhost");
@@ -101,6 +107,8 @@ server.on("upgrade", (req, socket, head) => {
     port,
     servername: targetUrl.hostname,
   });
+  targetSocket.setNoDelay(true);
+  targetSocket.setKeepAlive(true, 1000);
 
   targetSocket.on("error", () => socket.destroy());
   socket.on("error", () => targetSocket.destroy());
