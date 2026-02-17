@@ -103,8 +103,27 @@ const sendWsText = (socket, text) => {
   socket.write(Buffer.concat([header, payload]));
 };
 
+const sendWsPong = (socket, payload = Buffer.alloc(0)) => {
+  const length = payload.length;
+  let header;
+  if (length < 126) {
+    header = Buffer.alloc(2);
+    header[1] = length;
+  } else if (length < 65536) {
+    header = Buffer.alloc(4);
+    header[1] = 126;
+    header.writeUInt16BE(length, 2);
+  } else {
+    header = Buffer.alloc(10);
+    header[1] = 127;
+    header.writeBigUInt64BE(BigInt(length), 2);
+  }
+  header[0] = 0x8a;
+  socket.write(Buffer.concat([header, payload]));
+};
+
 const parseWsFrames = (buffer) => {
-  const messages = [];
+  const frames = [];
   let offset = 0;
   while (offset + 2 <= buffer.length) {
     const byte1 = buffer[offset];
@@ -135,14 +154,10 @@ const parseWsFrames = (buffer) => {
       }
       payload = unmasked;
     }
-    if (opcode === 1) {
-      messages.push(payload.toString("utf8"));
-    } else if (opcode === 8) {
-      messages.push(null);
-    }
+    frames.push({ opcode, payload });
     offset = frameEnd;
   }
-  return { messages, remaining: buffer.slice(offset) };
+  return { frames, remaining: buffer.slice(offset) };
 };
 
 const handleControlUpgrade = (req, socket, head) => {
@@ -171,13 +186,19 @@ const handleControlUpgrade = (req, socket, head) => {
   sendWsText(socket, JSON.stringify({ type: "ready" }));
   socket.on("data", (chunk) => {
     socket._wsBuffer = Buffer.concat([socket._wsBuffer, chunk]);
-    const { messages, remaining } = parseWsFrames(socket._wsBuffer);
+    const { frames, remaining } = parseWsFrames(socket._wsBuffer);
     socket._wsBuffer = remaining;
-    for (const message of messages) {
-      if (message === null) {
+    for (const frame of frames) {
+      if (frame.opcode === 9) {
+        sendWsPong(socket, frame.payload);
+        continue;
+      }
+      if (frame.opcode === 8) {
         socket.end();
         return;
       }
+      if (frame.opcode !== 1) continue;
+      const message = frame.payload.toString("utf8");
       let payload;
       try {
         payload = JSON.parse(message);
@@ -194,6 +215,47 @@ const handleControlUpgrade = (req, socket, head) => {
   });
   socket.on("close", () => controlClients.delete(socket));
   socket.on("error", () => controlClients.delete(socket));
+};
+
+const idleClients = new Set();
+
+const handleIdleUpgrade = (req, socket, head) => {
+  const key = req.headers["sec-websocket-key"];
+  if (!key) {
+    socket.destroy();
+    return;
+  }
+  const accept = makeAcceptKey(key);
+  socket.write(
+    [
+      "HTTP/1.1 101 Switching Protocols",
+      "Upgrade: websocket",
+      "Connection: Upgrade",
+      `Sec-WebSocket-Accept: ${accept}`,
+      "\r\n",
+    ].join("\r\n"),
+  );
+  socket.setNoDelay(true);
+  socket.setKeepAlive(true, 1000);
+  if (head && head.length) {
+    socket.unshift(head);
+  }
+  socket._wsBuffer = Buffer.alloc(0);
+  idleClients.add(socket);
+  socket.on("data", (chunk) => {
+    socket._wsBuffer = Buffer.concat([socket._wsBuffer, chunk]);
+    const { frames, remaining } = parseWsFrames(socket._wsBuffer);
+    socket._wsBuffer = remaining;
+    for (const frame of frames) {
+      if (frame.opcode === 9) {
+        sendWsPong(socket, frame.payload);
+      } else if (frame.opcode === 8) {
+        socket.end();
+      }
+    }
+  });
+  socket.on("close", () => idleClients.delete(socket));
+  socket.on("error", () => idleClients.delete(socket));
 };
 
 server.on("upgrade", (req, socket, head) => {
@@ -213,7 +275,7 @@ server.on("upgrade", (req, socket, head) => {
 
   const target = requestUrl.searchParams.get("target");
   if (!target) {
-    socket.destroy();
+    handleIdleUpgrade(req, socket, head);
     return;
   }
 
