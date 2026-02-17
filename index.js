@@ -304,6 +304,11 @@ server.on("upgrade", (req, socket, head) => {
   targetSocket.on("connect", () => {
     const headers = Object.assign({}, req.headers);
     headers.host = targetUrl.host;
+    const origin =
+      (isSecure ? "https://" : "http://") +
+      (targetUrl.host || targetUrl.hostname);
+    if (headers.origin) headers.origin = origin;
+    if (headers.referer) headers.referer = `${origin}/`;
     const path = targetUrl.pathname + (targetUrl.search || "");
     const lines = [`${req.method} ${path} HTTP/${req.httpVersion}`];
     for (const [key, value] of Object.entries(headers)) {
