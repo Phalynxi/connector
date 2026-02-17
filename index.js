@@ -58,11 +58,15 @@ const server = http.createServer((req, res) => {
     res.writeHead(200, {
       "content-type": "application/javascript",
       "cache-control": "no-store",
+      "access-control-allow-origin": "*",
     });
     res.end(clientScript);
     return;
   }
-  res.writeHead(200, { "content-type": "text/plain" });
+  res.writeHead(200, {
+    "content-type": "text/plain",
+    "access-control-allow-origin": "*",
+  });
   res.end("ok");
 });
 
