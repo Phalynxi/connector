@@ -7,19 +7,19 @@ const server = http.createServer();
 const wss = new WebSocket.Server({ server });
 
 wss.on("connection", (client) => {
-    const gameSocket = new WebSocket("wss://moomoo.io");
+    console.log("Client connected!");
 
+    // Echo messages back
     client.on("message", (msg) => {
-        if (gameSocket.readyState === WebSocket.OPEN)
-            gameSocket.send(msg);
+        console.log("Received from client:", msg.toString());
+        client.send(`Server received: ${msg.toString()}`);
     });
 
-    gameSocket.on("message", (msg) => {
-        if (client.readyState === WebSocket.OPEN)
-            client.send(msg);
+    client.on("close", () => {
+        console.log("Client disconnected");
     });
 });
 
 server.listen(PORT, () => {
-    console.log("Server running on port " + PORT);
+    console.log("WebSocket server running on port " + PORT);
 });
